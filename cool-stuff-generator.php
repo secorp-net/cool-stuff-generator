@@ -60,6 +60,17 @@ $api_key = ''; // This will be filled in by the user through the form
 
 // Categories and items
 $categories = [
+    'food' => [
+        "Cafes and Coffee shops",
+        "Italian restaurant",
+        "Sushi restaurant",
+        "Mexican taqueria",
+        "Gourmet pizza",
+        "Farm-to-table dining",
+        "Food truck festival",
+        "Dumpling time",
+        "BBQ"
+    ],
     'work' => [
         "Remote coding session",
         "Co-working space",
@@ -83,20 +94,11 @@ $categories = [
         "Outdoor movie screening",
         "Local meetup group",
         "Meeting new people"
-    ],
-    'food' => [
-        "Sushi restaurant",
-        "Mexican taqueria",
-        "Gourmet pizza",
-        "Farm-to-table dining",
-        "Food truck festival",
-        "Dumpling time",
-        "BBQ"
     ]
 ];
 
 // Get OpenAI API response
-function getOpenAIRecommendations($api_key, $location, $selected_items, $action = 'generate') {
+function getOpenAIRecommendations($api_key, $location, $selected_items, $action = 'generate', $previous_recommendations = []) {
     // Create prompt for OpenAI
     // Check if this is a single-item request
     $is_single_item = ($action === 'generate_single_item');
@@ -117,6 +119,16 @@ function getOpenAIRecommendations($api_key, $location, $selected_items, $action 
         
         $prompt = "I'm in {$location} and I'm specifically interested in {$single_activity}. Please provide EXACTLY ONE real recommendation with full details for this activity.\n\n";
         $prompt .= "I want a detailed recommendation for {$single_activity} that includes all of the following: name, description, website, exact address, and why it's a good option for this activity.\n\n";
+        
+        // Add exclusion for previous recommendations
+        if (!empty($previous_recommendations)) {
+            $prompt .= "IMPORTANT: Please DO NOT recommend any of these previously recommended places: " . implode(", ", $previous_recommendations) . ".\n\n";
+            
+            // Log this exclusion
+            error_log("Excluding previous recommendations: " . implode(", ", $previous_recommendations));
+            @file_put_contents(sys_get_temp_dir() . '/cool-stuff-debug.txt', 
+                "Excluding previous recommendations: " . implode(", ", $previous_recommendations) . "\n", FILE_APPEND);
+        }
     } else {
         // Regular prompt for multiple items
         $prompt = "I'm in {$location} and looking for specific recommendations with real locations, websites, and addresses for the following activities:\n\n";
@@ -333,9 +345,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                $category = isset($_POST['category']) ? $_POST['category'] : '';
                $activity = isset($_POST['activity']) ? $_POST['activity'] : '';
                
+               // Get previous recommendations if available
+               $previous_recommendations = isset($_POST['previous_recommendations']) ? $_POST['previous_recommendations'] : '[]';
+               $previous_recommendations = json_decode($previous_recommendations, true);
+               if (!is_array($previous_recommendations)) {
+                   $previous_recommendations = [];
+               }
+               
                // Write to debug file
                $debug_file = dirname($_SERVER['SCRIPT_FILENAME']) . '/debug_output.txt';
                @file_put_contents($debug_file, "Single item request received: category=$category, activity=$activity\n", FILE_APPEND);
+               @file_put_contents($debug_file, "Previous recommendations: " . implode(", ", $previous_recommendations) . "\n", FILE_APPEND);
                error_log("Single item request received: category=$category, activity=$activity");
                
                if (empty($category) || empty($activity)) {
@@ -394,7 +414,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
             
             // Get recommendations from OpenAI
-            $response = getOpenAIRecommendations($api_key, $location, $selected_items, $action);
+            // Pass previous recommendations if this is a single item request
+            if ($action === 'generate_single_item' && !empty($previous_recommendations)) {
+                $response = getOpenAIRecommendations($api_key, $location, $selected_items, $action, $previous_recommendations);
+            } else {
+                $response = getOpenAIRecommendations($api_key, $location, $selected_items, $action);
+            }
             
             // Debug: Add prompt and response to results for debugging
             $debug_info = [
@@ -439,10 +464,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 // Define pattern to look for category headers (must be on their own line)
                 // Using \b word boundary and making the pattern more specific to match only standalone category headers
                 $category_patterns = [
+                    '/^\s*\bFOOD\s*:?\s*$/i' => 'food',
                     '/^\s*\bWORK\s*:?\s*$/i' => 'work',
                     '/^\s*\bSPORTS\s*:?\s*$/i' => 'sports',
-                    '/^\s*\bSOCIAL\s*:?\s*$/i' => 'social',
-                    '/^\s*\bFOOD\s*:?\s*$/i' => 'food'
+                    '/^\s*\bSOCIAL\s*:?\s*$/i' => 'social'
                 ];
                 
                 // First, split the text by clear category headers

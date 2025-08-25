@@ -1,4 +1,7 @@
     <script>
+        // Object to track previous recommendations for each activity
+        const previousRecommendations = {};
+        
         // Client-side functions for star animations and location detection
         document.addEventListener('DOMContentLoaded', function() {
             const starsContainer = document.getElementById('stars');
@@ -105,6 +108,12 @@
             // Show loading message
             contentContainer.innerHTML = '<div class="loading">Generating recommendation for "' + activity + '"...</div>';
             
+            // Get previously recommended places for this activity
+            const activityKey = `${category}-${activity}`;
+            if (!previousRecommendations[activityKey]) {
+                previousRecommendations[activityKey] = [];
+            }
+            
             // Make AJAX request to get a single recommendation
             const formData = new FormData();
             formData.append('action', 'generate_single_item');
@@ -112,8 +121,10 @@
             formData.append('location', location);
             formData.append('category', category);
             formData.append('activity', activity);
+            formData.append('previous_recommendations', JSON.stringify(previousRecommendations[activityKey]));
             
             console.log(`Sending request for ${category} - ${activity}`);
+            console.log(`Previous recommendations for this activity:`, previousRecommendations[activityKey]);
             
             // Get the current script path to ensure we're posting to the right URL
             const scriptPath = window.location.pathname;
@@ -149,6 +160,17 @@
                         contentContainer.innerHTML = '';
                         contentContainer.appendChild(contentElement);
                         
+                        // Extract and store the business name for future reference
+                        const businessName = extractBusinessName(categoryContent);
+                        if (businessName) {
+                            const activityKey = `${category}-${activity}`;
+                            if (!previousRecommendations[activityKey]) {
+                                previousRecommendations[activityKey] = [];
+                            }
+                            previousRecommendations[activityKey].push(businessName);
+                            console.log(`Added "${businessName}" to previous recommendations for ${activity}`);
+                        }
+                        
                         // Debug log
                         console.log(`Generated recommendation for ${category} - ${activity}:`, categoryContent);
                     } else {
@@ -180,6 +202,16 @@
         }
         
         // Shareable link section removed - URL parameter functionality still works
+        
+        // Function to extract business name from a recommendation
+        function extractBusinessName(content) {
+            const businessNameRegex = /BUSINESS NAME:\s*(.*?)(\n|$)/;
+            const match = businessNameRegex.exec(content);
+            if (match && match[1]) {
+                return match[1].trim();
+            }
+            return null;
+        }
         
         // Function to format content with colored business names and make URLs clickable
         function formatContentWithColoredBusinessNames(content) {
